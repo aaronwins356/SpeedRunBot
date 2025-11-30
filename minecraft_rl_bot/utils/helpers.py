@@ -65,10 +65,13 @@ def _parse_simple_yaml(content: str) -> Dict:
     Parse a simple YAML file (key: value pairs).
     
     This is a minimal YAML parser for basic config files.
-    For full YAML support, use PyYAML.
+    
+    WARNING: This parser is for trusted config files only.
+    For production use with untrusted input, use PyYAML with
+    safe_load() to prevent code injection attacks.
     
     Args:
-        content: YAML file content
+        content: YAML file content (from trusted source)
         
     Returns:
         Parsed dictionary
@@ -88,6 +91,10 @@ def _parse_simple_yaml(content: str) -> Dict:
             key, _, value = line.partition(':')
             key = key.strip()
             value = value.strip()
+            
+            # Basic validation: key should be alphanumeric with underscores
+            if not key.replace('_', '').replace('-', '').isalnum():
+                continue  # Skip invalid keys
             
             if value:
                 # Parse value type

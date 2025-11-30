@@ -63,6 +63,10 @@ class RewardConfig:
     enable_shaping: bool = True
 
 
+# Maximum damage possible in a single tick (for reward normalization)
+# Minecraft typically caps damage at around 3-4 hearts per tick from normal sources
+MAX_DAMAGE_PER_TICK = 3.0
+
 # Reward values for different events
 REWARD_VALUES = {
     # Resource gathering (positive)
@@ -286,8 +290,8 @@ class RewardShaper:
         if curr_health <= 0:
             return REWARD_VALUES['death']
         
-        # Scale by damage amount
-        return REWARD_VALUES['damage_mob'] * damage / 3.0
+        # Scale by damage amount (normalized by max typical damage per tick)
+        return REWARD_VALUES['damage_mob'] * damage / MAX_DAMAGE_PER_TICK
     
     def _compute_exploration_reward(
         self,

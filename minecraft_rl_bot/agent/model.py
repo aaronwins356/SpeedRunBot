@@ -149,8 +149,20 @@ class BlockEncoder:
         """
         Simple 3D convolution implementation.
         
-        This is a basic implementation for CPU inference.
-        For training, consider using PyTorch or JAX.
+        WARNING: This nested-loop implementation is slow and intended
+        for demonstration purposes only. For practical training speeds:
+        
+        1. Use PyTorch: torch.nn.functional.conv3d()
+        2. Use JAX: jax.lax.conv_general_dilated()
+        3. Use scipy: scipy.ndimage.convolve() (partial)
+        
+        The pure-numpy approach allows running without deep learning
+        frameworks but will be ~100x slower than optimized implementations.
+        
+        For production use, add PyTorch backend:
+            import torch.nn.functional as F
+            return F.conv3d(torch.tensor(x), torch.tensor(weights), 
+                           torch.tensor(bias), stride=stride).numpy()
         """
         batch, in_channels, d, h, w = x.shape
         out_channels, _, kd, kh, kw = weights.shape

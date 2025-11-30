@@ -353,16 +353,28 @@ class Trainer:
         """
         Perform a simple gradient update.
         
-        This is a placeholder for proper gradient computation.
-        In production, you would use PyTorch autograd or JAX grad.
+        NOTE: This is a PLACEHOLDER implementation that adds random
+        parameter perturbation instead of true gradient descent.
         
-        For now, we use numerical gradient estimation for simplicity.
+        For production training, replace this with proper gradient
+        computation using PyTorch autograd or JAX autodiff:
+        
+        Example with PyTorch:
+            optimizer = torch.optim.Adam(model.parameters(), lr=self.config.learning_rate)
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), self.config.max_grad_norm)
+            optimizer.step()
+        
+        The current implementation enables the training loop to run
+        for testing purposes but will not produce meaningful learning.
         """
         params = self.policy.get_parameters()
         lr = self.config.learning_rate
         
-        # Simple parameter noise for exploration/learning
-        # This is NOT proper gradient descent - just for demonstration
+        # PLACEHOLDER: Random parameter perturbation (not real gradient descent)
+        # This allows the code to run but doesn't implement actual learning
+        # Replace with proper gradient computation for real training
         for name, param in params.items():
             noise = np.random.randn(*param.shape) * lr * 0.1
             params[name] = param - noise

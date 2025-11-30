@@ -169,11 +169,15 @@ class MinecraftEnv:
         Generate a procedural Minecraft-like world.
         
         This creates a simplified world with:
-        - Terrain with varying heights
-        - Underground caves and ores
-        - Trees and vegetation
-        - Nether portal location
-        - End portal location
+        - Terrain with varying heights using simple noise
+        - Stone and dirt layers with ore deposits
+        - Surface grass and trees
+        - Water at sea level
+        - Nether portal location marker
+        - End portal location marker
+        
+        Note: This is a simplified implementation. Caves are not
+        generated in this version to keep the mock lightweight.
         
         In a real Minecraft integration, this would be replaced by
         the actual Minecraft world generation.

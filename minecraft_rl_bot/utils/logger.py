@@ -427,5 +427,5 @@ class RewardVisualizer:
         return "\n".join(lines)
     
     def clear(self) -> None:
-        """Clear reward history."""
+        """Clear all stored reward data."""
         self.rewards.clear()
