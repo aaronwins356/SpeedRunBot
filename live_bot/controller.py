@@ -24,6 +24,7 @@ States:
 - ERROR: Error recovery state
 """
 
+import math
 import time
 import json
 import logging
@@ -440,7 +441,6 @@ class BotController:
             return
         
         # Move in a spiral pattern outward from origin
-        import math
         search_index = len(self._searched_cities)
         angle = search_index * 0.5  # Radians
         distance = 500 + search_index * 200  # Blocks
@@ -575,7 +575,6 @@ class BotController:
         """Get position to look left."""
         pos = self.client.get_position()
         if pos:
-            import math
             return (pos.x - 10, pos.y, pos.z)
         return (0, 64, 0)
     
