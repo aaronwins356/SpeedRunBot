@@ -4,12 +4,13 @@
 # This script provides easy commands for training and managing the agent.
 #
 # Usage:
-#   ./run.sh train              # Start training with default config
-#   ./run.sh train --episodes 5000  # Train for specific episodes
-#   ./run.sh resume checkpoint.npz  # Resume from checkpoint
-#   ./run.sh evaluate           # Evaluate current best model
-#   ./run.sh test               # Run quick test
-#   ./run.sh clean              # Clean checkpoints and logs
+#   ./run.sh train                    # Start training with default config
+#   ./run.sh train --episodes 5000    # Train for specific episodes
+#   ./run.sh resume checkpoint.pt     # Resume from checkpoint
+#   ./run.sh evaluate model.pt        # Evaluate model performance
+#   ./run.sh test                     # Run quick test
+#   ./run.sh stages                   # List curriculum stages
+#   ./run.sh clean                    # Clean checkpoints and logs
 
 set -e
 
@@ -22,6 +23,7 @@ CHECKPOINT_DIR="checkpoints"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Print colored message
@@ -37,6 +39,10 @@ print_error() {
     echo -e "${RED}[Error]${NC} $1"
 }
 
+print_info() {
+    echo -e "${BLUE}[Info]${NC} $1"
+}
+
 # Check Python and dependencies
 check_requirements() {
     print_msg "Checking requirements..."
@@ -46,13 +52,19 @@ check_requirements() {
         exit 1
     fi
     
+    # Check PyTorch
+    if ! $PYTHON -c "import torch" 2>/dev/null; then
+        print_warn "PyTorch not found. Installing CPU version..."
+        $PYTHON -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+    fi
+    
     # Check NumPy
     if ! $PYTHON -c "import numpy" 2>/dev/null; then
         print_warn "NumPy not found. Installing..."
         $PYTHON -m pip install numpy
     fi
     
-    print_msg "Requirements OK"
+    print_msg "Requirements OK ✓"
 }
 
 # Train the agent
@@ -64,15 +76,30 @@ train() {
     mkdir -p $CHECKPOINT_DIR
     
     # Run training
-    $PYTHON -m minecraft_rl_bot.training.train --config $CONFIG_FILE "$@"
+    $PYTHON main.py --train --config $CONFIG_FILE "$@"
+}
+
+# Train with specific stage
+train_stage() {
+    STAGE=$1
+    shift
+    print_msg "Starting training at stage: $STAGE"
+    check_requirements
+    
+    mkdir -p $CHECKPOINT_DIR
+    
+    $PYTHON main.py --stage "$STAGE" --config $CONFIG_FILE "$@"
 }
 
 # Resume training from checkpoint
 resume() {
     if [ -z "$1" ]; then
         # Look for latest checkpoint
-        CHECKPOINT=$(ls -t $CHECKPOINT_DIR/checkpoint_*.npz 2>/dev/null | head -1)
+        CHECKPOINT=$(ls -t $CHECKPOINT_DIR/checkpoint_*.pt 2>/dev/null | head -1)
         if [ -z "$CHECKPOINT" ]; then
+            CHECKPOINT="$CHECKPOINT_DIR/best_model.pt"
+        fi
+        if [ ! -f "$CHECKPOINT" ]; then
             print_error "No checkpoint found. Use: ./run.sh train"
             exit 1
         fi
@@ -83,7 +110,7 @@ resume() {
     print_msg "Resuming from: $CHECKPOINT"
     check_requirements
     
-    $PYTHON -m minecraft_rl_bot.training.train --config $CONFIG_FILE --checkpoint "$CHECKPOINT" "${@:2}"
+    $PYTHON main.py --resume "$CHECKPOINT" --config $CONFIG_FILE "${@:2}"
 }
 
 # Evaluate the model
@@ -91,27 +118,14 @@ evaluate() {
     print_msg "Evaluating model..."
     check_requirements
     
-    CHECKPOINT="${1:-$CHECKPOINT_DIR/best_model.npz}"
+    CHECKPOINT="${1:-$CHECKPOINT_DIR/best_model.pt}"
     
     if [ ! -f "$CHECKPOINT" ]; then
         print_error "Model not found: $CHECKPOINT"
         exit 1
     fi
     
-    $PYTHON -c "
-from minecraft_rl_bot import MinecraftEnv, Trainer, TrainingConfig
-
-config = TrainingConfig()
-trainer = Trainer(config)
-trainer.load_checkpoint('$CHECKPOINT')
-
-results = trainer.evaluate(num_episodes=10)
-print()
-print('Evaluation Results:')
-print(f'  Mean Reward: {results[\"mean_reward\"]:.2f} ± {results[\"std_reward\"]:.2f}')
-print(f'  Mean Steps: {results[\"mean_steps\"]:.0f}')
-print(f'  Completion Rate: {results[\"completion_rate\"]:.1%}')
-"
+    $PYTHON main.py --evaluate --checkpoint "$CHECKPOINT" "${@:2}"
 }
 
 # Run quick test
@@ -119,33 +133,13 @@ test() {
     print_msg "Running quick test..."
     check_requirements
     
-    $PYTHON -c "
-from minecraft_rl_bot import MinecraftEnv, Policy, DiscreteAction
+    $PYTHON main.py --test
+}
 
-# Test environment
-env = MinecraftEnv(seed=42)
-obs, info = env.reset()
-print('Environment created successfully')
-print(f'  Observation shape: blocks={obs[\"blocks\"].shape}, inventory={obs[\"inventory\"].shape}')
-
-# Test policy
-policy = Policy()
-action, log_prob, value = policy.act({
-    'blocks': obs['blocks'][None, ...],
-    'inventory': obs['inventory'][None, ...],
-    'agent_state': obs['agent_state'][None, ...]
-})
-print('Policy created successfully')
-print(f'  Action: {action}')
-
-# Test step
-obs, reward, term, trunc, info = env.step(DiscreteAction())
-print('Environment step successful')
-print(f'  Reward: {reward:.2f}')
-
-print()
-print('All tests passed!')
-"
+# List curriculum stages
+stages() {
+    print_msg "Curriculum stages:"
+    $PYTHON main.py --list-stages
 }
 
 # Clean checkpoints and logs
@@ -157,7 +151,7 @@ clean() {
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         rm -rf $CHECKPOINT_DIR
         rm -rf logs
-        print_msg "Cleaned successfully"
+        print_msg "Cleaned successfully ✓"
     else
         print_msg "Cancelled"
     fi
@@ -165,23 +159,39 @@ clean() {
 
 # Show help
 show_help() {
-    echo "Minecraft RL Bot - Training Script"
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║           🎮 Minecraft RL Bot - Training Script              ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
     echo "Usage: ./run.sh <command> [options]"
     echo ""
     echo "Commands:"
     echo "  train              Start training with default config"
+    echo "  stage <name>       Start training at specific curriculum stage"
     echo "  resume [file]      Resume training from checkpoint"
     echo "  evaluate [file]    Evaluate model performance"
     echo "  test               Run quick functionality test"
+    echo "  stages             List all curriculum stages"
     echo "  clean              Remove checkpoints and logs"
     echo "  help               Show this help message"
     echo ""
+    echo "Curriculum Stages:"
+    echo "  survival           Basic survival and movement"
+    echo "  resource_gathering Mining and collecting items"
+    echo "  tool_crafting      Crafting tools"
+    echo "  nether_access      Building Nether portal"
+    echo "  blaze_hunting      Finding Blaze rods"
+    echo "  ender_pearl_hunt   Collecting Ender Pearls"
+    echo "  end_preparation    Finding stronghold"
+    echo "  dragon_fight       Defeating the dragon"
+    echo "  full_game          Complete speedrun"
+    echo ""
     echo "Examples:"
     echo "  ./run.sh train"
+    echo "  ./run.sh stage survival"
     echo "  ./run.sh train --episodes 5000"
-    echo "  ./run.sh resume checkpoints/checkpoint_100.npz"
-    echo "  ./run.sh evaluate checkpoints/best_model.npz"
+    echo "  ./run.sh resume checkpoints/checkpoint_100.pt"
+    echo "  ./run.sh evaluate checkpoints/best_model.pt"
     echo ""
 }
 
@@ -190,6 +200,10 @@ case "${1:-help}" in
     train)
         shift
         train "$@"
+        ;;
+    stage)
+        shift
+        train_stage "$@"
         ;;
     resume)
         shift
@@ -201,6 +215,9 @@ case "${1:-help}" in
         ;;
     test)
         test
+        ;;
+    stages|list-stages)
+        stages
         ;;
     clean)
         clean

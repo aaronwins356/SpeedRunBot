@@ -1,36 +1,39 @@
 """
-train.py - Main training loop for Minecraft RL agent.
+train.py - Main training loop for Minecraft RL agent using PyTorch.
 
 This module provides the complete training pipeline:
 - Environment interaction
-- Policy optimization
+- Policy optimization using PyTorch autograd
 - Curriculum management
 - Logging and checkpointing
 
 The training loop supports:
-- Policy gradient methods (REINFORCE, A2C)
+- Actor-Critic with Generalized Advantage Estimation (A2C)
 - Value function estimation
 - Curriculum learning progression
 - Periodic model saving
 
 Usage:
-    python -m minecraft_rl_bot.training.train --config config.yaml
+    python -m training.train --config config.yaml
+    python main.py --stage survival
 """
 
+import torch
+import torch.optim as optim
 import numpy as np
 import time
 import json
 import os
-from typing import Dict, Optional, List, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, Optional
+from dataclasses import dataclass
 from pathlib import Path
 
-from ..env import MinecraftEnv, DiscreteAction
-from ..agent import Policy, PolicyConfig, ModelConfig, RolloutBuffer
-from .reward import RewardShaper, RewardConfig, CurriculumStage
-from .curriculum import CurriculumManager, CURRICULUM_STAGES
-from ..utils.logger import TrainingLogger
-from ..utils.helpers import load_config, set_seed
+from env import MinecraftEnv, DiscreteAction
+from agent import Policy, PolicyConfig, ModelConfig, RolloutBuffer
+from training.reward import RewardShaper, RewardConfig, CurriculumStage
+from training.curriculum import CurriculumManager, CURRICULUM_STAGES
+from utils.logger import TrainingLogger
+from utils.config import load_config, set_seed
 
 
 @dataclass
@@ -88,12 +91,12 @@ class Trainer:
     
     This class orchestrates:
     1. Environment interaction (collecting experience)
-    2. Policy updates (learning from experience)
+    2. Policy updates using PyTorch (learning from experience)
     3. Curriculum progression (increasing difficulty)
     4. Logging and checkpointing
     
-    The training algorithm is based on Actor-Critic with
-    Generalized Advantage Estimation (similar to A2C/PPO).
+    The training algorithm is Actor-Critic with
+    Generalized Advantage Estimation (A2C).
     """
     
     def __init__(
@@ -115,6 +118,10 @@ class Trainer:
         # Set random seed
         set_seed(self.config.seed)
         
+        # Determine device
+        self.device = torch.device('cpu')
+        print(f"Using device: {self.device}")
+        
         # Create environment
         self.env = env if env is not None else MinecraftEnv(
             seed=self.config.seed,
@@ -130,6 +137,12 @@ class Trainer:
             self.policy = Policy(policy_config)
         else:
             self.policy = policy
+        
+        # Create PyTorch optimizer
+        self.optimizer = optim.Adam(
+            self.policy.model.parameters(),
+            lr=self.config.learning_rate
+        )
         
         # Create curriculum manager
         self.curriculum = CurriculumManager(
@@ -164,10 +177,14 @@ class Trainer:
         Returns:
             Training summary statistics
         """
-        print("Starting training...")
+        print("=" * 60)
+        print("Starting Minecraft RL Bot Training")
+        print("=" * 60)
         print(f"  Episodes: {self.config.num_episodes}")
         print(f"  Curriculum: {self.config.use_curriculum}")
+        print(f"  Learning rate: {self.config.learning_rate}")
         print(f"  Checkpoint dir: {self.config.checkpoint_dir}")
+        print("=" * 60)
         print()
         
         start_time = time.time()
@@ -263,7 +280,7 @@ class Trainer:
             
             # Store transition (raw observation without batch dimension)
             self.rollout_buffer.add(
-                observation=observation,  # Store raw observation
+                observation=observation,
                 action=action,
                 reward=total_reward,
                 log_prob=log_prob[0] if isinstance(log_prob, np.ndarray) else log_prob,
@@ -295,40 +312,59 @@ class Trainer:
     
     def _update_policy(self) -> Dict:
         """
-        Update the policy using collected experience.
+        Update the policy using collected experience with PyTorch.
         
-        Uses a simple policy gradient update with value baseline.
+        Uses Actor-Critic with GAE for advantage estimation.
         
         Returns:
             Update statistics
         """
-        # Get final value estimate for bootstrapping
+        # Get batch data
         batch = self.rollout_buffer.get_batch()
         
         # Compute returns and advantages
         returns, advantages = self.rollout_buffer.compute_returns_and_advantages(
             gamma=self.config.gamma,
             gae_lambda=self.config.gae_lambda,
-            last_value=0.0  # Assume episode ended
+            last_value=0.0
         )
         
         # Normalize advantages
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
+        # Convert to tensors
+        obs_tensors = {
+            key: torch.tensor(value, dtype=torch.float32, device=self.device)
+            for key, value in batch['observations'].items()
+        }
+        
+        if isinstance(batch['actions'], dict):
+            action_tensors = {
+                key: torch.tensor(value, dtype=torch.long, device=self.device)
+                for key, value in batch['actions'].items()
+            }
+        else:
+            action_tensors = torch.tensor(
+                batch['actions'], dtype=torch.float32, device=self.device
+            )
+        
+        returns_tensor = torch.tensor(returns, dtype=torch.float32, device=self.device)
+        advantages_tensor = torch.tensor(advantages, dtype=torch.float32, device=self.device)
+        
         # Evaluate actions
-        log_probs, values, entropy = self.policy.evaluate_actions(
-            batch['observations'],
-            batch['actions']
+        log_probs, values, entropy = self.policy.model.evaluate_actions(
+            obs_tensors,
+            action_tensors
         )
         
         # Policy loss (negative because we want to maximize)
-        policy_loss = -np.mean(log_probs * advantages)
+        policy_loss = -(log_probs * advantages_tensor).mean()
         
         # Value loss
-        value_loss = np.mean((values - returns) ** 2)
+        value_loss = ((values - returns_tensor) ** 2).mean()
         
         # Entropy bonus (negative because we want to maximize entropy)
-        entropy_loss = -np.mean(entropy)
+        entropy_loss = -entropy.mean()
         
         # Total loss
         total_loss = (
@@ -337,49 +373,25 @@ class Trainer:
             self.config.entropy_coef * entropy_loss
         )
         
-        # Compute gradients and update
-        # NOTE: This is a simplified update. In practice, you would use
-        # an optimizer like Adam with proper gradient computation.
-        self._simple_gradient_update(total_loss, batch)
+        # Backpropagation
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(
+            self.policy.model.parameters(),
+            self.config.max_grad_norm
+        )
+        
+        # Update parameters
+        self.optimizer.step()
         
         return {
-            'policy_loss': float(policy_loss),
-            'value_loss': float(value_loss),
-            'entropy': float(-entropy_loss),
-            'total_loss': float(total_loss)
+            'policy_loss': float(policy_loss.item()),
+            'value_loss': float(value_loss.item()),
+            'entropy': float(-entropy_loss.item()),
+            'total_loss': float(total_loss.item())
         }
-    
-    def _simple_gradient_update(self, loss: float, batch: Dict) -> None:
-        """
-        Perform a simple gradient update.
-        
-        NOTE: This is a PLACEHOLDER implementation that adds random
-        parameter perturbation instead of true gradient descent.
-        
-        For production training, replace this with proper gradient
-        computation using PyTorch autograd or JAX autodiff:
-        
-        Example with PyTorch:
-            optimizer = torch.optim.Adam(model.parameters(), lr=self.config.learning_rate)
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), self.config.max_grad_norm)
-            optimizer.step()
-        
-        The current implementation enables the training loop to run
-        for testing purposes but will not produce meaningful learning.
-        """
-        params = self.policy.get_parameters()
-        lr = self.config.learning_rate
-        
-        # PLACEHOLDER: Random parameter perturbation (not real gradient descent)
-        # This allows the code to run but doesn't implement actual learning
-        # Replace with proper gradient computation for real training
-        for name, param in params.items():
-            noise = np.random.randn(*param.shape) * lr * 0.1
-            params[name] = param - noise
-        
-        self.policy.set_parameters(params)
     
     def _prepare_observation(self, obs: Dict) -> Dict:
         """Prepare observation for policy input."""
@@ -419,10 +431,11 @@ class Trainer:
         )
         
         # Console output
+        loss_str = f" | Loss: {update_stats.get('total_loss', 0):.4f}" if update_stats else ""
         print(f"Episode {episode:5d} | "
               f"Reward: {episode_stats['total_reward']:8.2f} | "
               f"Steps: {episode_stats['steps']:5d} | "
-              f"Stage: {self.curriculum.current_stage.name}")
+              f"Stage: {self.curriculum.current_stage.name}{loss_str}")
     
     def _save_checkpoint(
         self,
@@ -432,56 +445,61 @@ class Trainer:
     ) -> None:
         """Save a training checkpoint."""
         if is_best:
-            filename = "best_model.npz"
+            filename = "best_model.pt"
         elif is_final:
-            filename = "final_model.npz"
+            filename = "final_model.pt"
         else:
-            filename = f"checkpoint_{episode}.npz"
+            filename = f"checkpoint_{episode}.pt"
         
         path = os.path.join(self.config.checkpoint_dir, filename)
         
-        # Save model
-        self.policy.save(path)
-        
-        # Save training state
-        state = {
+        # Save model and optimizer state
+        torch.save({
+            'model_state_dict': self.policy.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
             'episode': episode,
             'total_steps': self.total_steps,
             'best_reward': self.best_reward,
-            'curriculum': self.curriculum.save_state(),
+            'epsilon': self.policy.epsilon,
+            'curriculum_state': self.curriculum.save_state(),
             'config': {
                 'num_episodes': self.config.num_episodes,
                 'batch_size': self.config.batch_size,
                 'gamma': self.config.gamma,
                 'learning_rate': self.config.learning_rate
             }
-        }
-        
-        state_path = path.replace('.npz', '_state.json')
-        with open(state_path, 'w') as f:
-            json.dump(state, f, indent=2)
+        }, path)
         
         print(f"Saved checkpoint: {filename}")
     
     def load_checkpoint(self, path: str) -> None:
         """Load a training checkpoint."""
+        # Note: weights_only=False is required because we save additional
+        # training state (curriculum, config dicts). This is safe for checkpoints
+        # created by this training script but do not load untrusted checkpoints.
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        
         # Load model
-        self.policy.load(path)
+        self.policy.model.load_state_dict(checkpoint['model_state_dict'])
+        
+        # Load optimizer
+        if 'optimizer_state_dict' in checkpoint:
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         
         # Load training state
-        state_path = path.replace('.npz', '_state.json')
-        if os.path.exists(state_path):
-            with open(state_path, 'r') as f:
-                state = json.load(f)
-            
-            self.total_episodes = state.get('episode', 0)
-            self.total_steps = state.get('total_steps', 0)
-            self.best_reward = state.get('best_reward', float('-inf'))
-            
-            if 'curriculum' in state:
-                self.curriculum.load_state(state['curriculum'])
+        self.total_episodes = checkpoint.get('episode', 0)
+        self.total_steps = checkpoint.get('total_steps', 0)
+        self.best_reward = checkpoint.get('best_reward', float('-inf'))
+        
+        if 'epsilon' in checkpoint:
+            self.policy.epsilon = checkpoint['epsilon']
+        
+        if 'curriculum_state' in checkpoint:
+            self.curriculum.load_state(checkpoint['curriculum_state'])
         
         print(f"Loaded checkpoint: {path}")
+        print(f"  Episode: {self.total_episodes}")
+        print(f"  Best reward: {self.best_reward:.2f}")
     
     def evaluate(self, num_episodes: int = 10) -> Dict:
         """
@@ -528,9 +546,9 @@ class Trainer:
         self.policy.set_training(True)
         
         return {
-            'mean_reward': np.mean(rewards),
-            'std_reward': np.std(rewards),
-            'mean_steps': np.mean(steps),
+            'mean_reward': float(np.mean(rewards)),
+            'std_reward': float(np.std(rewards)),
+            'mean_steps': float(np.mean(steps)),
             'completion_rate': completions / num_episodes
         }
 
@@ -548,6 +566,8 @@ def main():
                         help='Number of episodes to train')
     parser.add_argument('--seed', type=int, default=None,
                         help='Random seed')
+    parser.add_argument('--stage', type=str, default=None,
+                        help='Curriculum stage to start from')
     args = parser.parse_args()
     
     # Load configuration
@@ -563,6 +583,13 @@ def main():
     # Create trainer
     trainer = Trainer(config)
     
+    # Set curriculum stage if specified
+    if args.stage:
+        stage_map = {s.name.lower(): s for s in CurriculumStage}
+        if args.stage.lower() in stage_map:
+            trainer.curriculum.set_stage(stage_map[args.stage.lower()])
+            print(f"Starting at curriculum stage: {args.stage}")
+    
     # Load checkpoint if provided
     if args.checkpoint:
         trainer.load_checkpoint(args.checkpoint)
@@ -571,9 +598,9 @@ def main():
     results = trainer.train()
     
     # Print results
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     print("Training Complete!")
-    print("=" * 50)
+    print("=" * 60)
     print(f"Total Episodes: {results['total_episodes']}")
     print(f"Total Steps: {results['total_steps']}")
     print(f"Best Reward: {results['best_reward']:.2f}")

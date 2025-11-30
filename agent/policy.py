@@ -9,6 +9,8 @@ This module provides high-level policy interfaces that:
 The policy is the main interface between the training loop and the model.
 """
 
+import torch
+import torch.nn as nn
 import numpy as np
 from typing import Dict, Tuple, Optional, List
 from dataclasses import dataclass
@@ -49,6 +51,7 @@ class Policy:
     - Epsilon-greedy exploration
     - Action sampling with temperature
     - Batch action selection for training
+    - Device management (CPU/GPU)
     
     Usage:
         policy = Policy(config)
@@ -64,8 +67,12 @@ class Policy:
         """
         self.config = config if config is not None else PolicyConfig()
         
+        # Determine device (CPU for low-resource hardware)
+        self.device = torch.device('cpu')
+        
         # Create model
         self.model = create_model(self.config.model_config)
+        self.model.to(self.device)
         
         # Exploration state
         self.epsilon = self.config.epsilon_start
@@ -79,7 +86,7 @@ class Policy:
         self,
         observation: Dict[str, np.ndarray],
         deterministic: bool = False
-    ) -> Tuple[Dict | np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[Dict, np.ndarray, np.ndarray]:
         """
         Select an action given the current observation.
         
@@ -90,7 +97,7 @@ class Policy:
             deterministic: If True, always select best action
             
         Returns:
-            action: Selected action
+            action: Selected action (as numpy arrays)
             log_prob: Log probability of action
             value: Estimated state value
         """
@@ -98,36 +105,74 @@ class Policy:
         if self.training and not deterministic and np.random.random() < self.epsilon:
             return self._random_action(observation)
         
+        # Convert observation to tensors
+        obs_tensors = self._numpy_to_tensor(observation)
+        
         # Use model to select action
-        return self.model.get_action(observation, deterministic=deterministic)
+        with torch.no_grad():
+            action, log_prob, value = self.model.get_action(
+                obs_tensors, deterministic=deterministic
+            )
+        
+        # Convert action back to numpy
+        action_np = self._action_to_numpy(action)
+        log_prob_np = log_prob.cpu().numpy()
+        value_np = value.cpu().numpy()
+        
+        return action_np, log_prob_np, value_np
+    
+    def _numpy_to_tensor(self, observation: Dict[str, np.ndarray]) -> Dict[str, torch.Tensor]:
+        """Convert numpy observation to tensor."""
+        return {
+            key: torch.tensor(value, dtype=torch.float32, device=self.device)
+            for key, value in observation.items()
+        }
+    
+    def _action_to_numpy(self, action: Dict[str, torch.Tensor]) -> Dict[str, np.ndarray]:
+        """Convert tensor action to numpy."""
+        if isinstance(action, dict):
+            return {
+                key: value.cpu().numpy()
+                for key, value in action.items()
+            }
+        return action.cpu().numpy()
     
     def _random_action(
         self,
         observation: Dict[str, np.ndarray]
-    ) -> Tuple[Dict | np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[Dict, np.ndarray, np.ndarray]:
         """Sample a random action for exploration."""
-        batch_size = observation['blocks'].shape[0] if len(observation['blocks'].shape) == 4 else 1
+        # Determine batch size
+        blocks_shape = observation['blocks'].shape
+        batch_size = blocks_shape[0] if len(blocks_shape) == 4 else 1
         
         if self.use_continuous:
             # Random continuous action
-            action = np.random.uniform(-1, 1, (batch_size, self.config.model_config.continuous_dim))
-            log_prob = np.zeros(batch_size)
+            action = np.random.uniform(
+                -1, 1, 
+                (batch_size, self.config.model_config.continuous_dim)
+            ).astype(np.float32)
+            log_prob = np.zeros(batch_size, dtype=np.float32)
         else:
             # Random discrete action
             action = {}
             for action_type, dim in self.action_dims.items():
                 action[action_type] = np.random.randint(0, dim, batch_size)
-            log_prob = np.zeros(batch_size)
+            log_prob = np.zeros(batch_size, dtype=np.float32)
         
         # Get value estimate from model (useful for training)
-        _, value = self.model.forward(observation)
+        obs_tensors = self._numpy_to_tensor(observation)
+        with torch.no_grad():
+            _, value = self.model.forward(obs_tensors)
         
-        return action, log_prob, value.squeeze(-1)
+        value_np = value.squeeze(-1).cpu().numpy()
+        
+        return action, log_prob, value_np
     
     def evaluate_actions(
         self,
         observations: Dict[str, np.ndarray],
-        actions: Dict | np.ndarray
+        actions: Dict[str, np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Evaluate actions for a batch of observations.
@@ -143,55 +188,27 @@ class Policy:
             values: State value estimates
             entropy: Policy entropy
         """
-        action_output, values = self.model.forward(observations)
+        # Convert to tensors
+        obs_tensors = self._numpy_to_tensor(observations)
         
-        if not self.use_continuous:
-            # Discrete actions
-            log_probs = []
-            entropies = []
-            
-            for action_type, logits in action_output.items():
-                probs = self._softmax(logits)
-                action_indices = actions[action_type]
-                
-                # Log probability of taken actions
-                log_prob = np.log(
-                    probs[np.arange(len(probs)), action_indices] + 1e-8
-                )
-                log_probs.append(log_prob)
-                
-                # Entropy
-                entropy = -np.sum(probs * np.log(probs + 1e-8), axis=-1)
-                entropies.append(entropy)
-            
-            total_log_prob = np.sum(log_probs, axis=0)
-            total_entropy = np.sum(entropies, axis=0)
+        if isinstance(actions, dict):
+            action_tensors = {
+                key: torch.tensor(value, dtype=torch.long, device=self.device)
+                for key, value in actions.items()
+            }
         else:
-            # Continuous actions
-            mean = action_output['mean']
-            log_std = action_output['log_std']
-            std = np.exp(log_std)
-            
-            # Gaussian log probability
-            total_log_prob = -0.5 * np.sum(
-                ((actions - mean) / std) ** 2 +
-                2 * log_std +
-                np.log(2 * np.pi),
-                axis=-1
-            )
-            
-            # Gaussian entropy
-            total_entropy = 0.5 * np.sum(
-                1 + np.log(2 * np.pi) + 2 * log_std,
-                axis=-1
-            )
+            action_tensors = torch.tensor(actions, dtype=torch.float32, device=self.device)
         
-        return total_log_prob, values.squeeze(-1), total_entropy
-    
-    def _softmax(self, x: np.ndarray) -> np.ndarray:
-        """Compute softmax along last axis."""
-        exp_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
-        return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
+        # Evaluate
+        log_probs, values, entropy = self.model.evaluate_actions(
+            obs_tensors, action_tensors
+        )
+        
+        return (
+            log_probs.detach().cpu().numpy(),
+            values.detach().cpu().numpy(),
+            entropy.detach().cpu().numpy()
+        )
     
     def decay_epsilon(self) -> None:
         """Decay exploration rate."""
@@ -203,157 +220,42 @@ class Policy:
     def set_training(self, training: bool) -> None:
         """Set training mode."""
         self.training = training
+        if training:
+            self.model.train()
+        else:
+            self.model.eval()
     
-    def get_parameters(self) -> Dict[str, np.ndarray]:
+    def get_parameters(self) -> Dict[str, torch.Tensor]:
         """Get all model parameters."""
-        return self.model.get_parameters()
-    
-    def set_parameters(self, params: Dict[str, np.ndarray]) -> None:
-        """Set all model parameters."""
-        self.model.set_parameters(params)
+        return dict(self.model.named_parameters())
     
     def save(self, path: str) -> None:
         """Save policy to file."""
-        self.model.save(path)
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'epsilon': self.epsilon,
+            'config': {
+                'use_continuous': self.config.model_config.use_continuous,
+                'action_dims': self.config.model_config.action_dims,
+                'hidden_dim': self.config.model_config.hidden_dim,
+                'block_channels': self.config.model_config.block_channels
+            }
+        }, path)
     
     def load(self, path: str) -> None:
         """Load policy from file."""
-        self.model.load(path)
-
-
-class ReplayBuffer:
-    """
-    Simple replay buffer for storing experience.
-    
-    Stores transitions (s, a, r, s', done) for training.
-    Supports random sampling for batch training.
-    """
-    
-    def __init__(self, capacity: int = 10000):
-        """
-        Initialize replay buffer.
-        
-        Args:
-            capacity: Maximum number of transitions to store
-        """
-        self.capacity = capacity
-        self.buffer: List[Dict] = []
-        self.position = 0
-    
-    def push(
-        self,
-        observation: Dict[str, np.ndarray],
-        action: Dict | np.ndarray,
-        reward: float,
-        next_observation: Dict[str, np.ndarray],
-        done: bool,
-        log_prob: float = 0.0,
-        value: float = 0.0
-    ) -> None:
-        """
-        Add a transition to the buffer.
-        
-        Args:
-            observation: State before action
-            action: Action taken
-            reward: Reward received
-            next_observation: State after action
-            done: Whether episode ended
-            log_prob: Log probability of action
-            value: Estimated value of state
-        """
-        transition = {
-            'observation': {k: v.copy() for k, v in observation.items()},
-            'action': action.copy() if isinstance(action, dict) else action,
-            'reward': reward,
-            'next_observation': {k: v.copy() for k, v in next_observation.items()},
-            'done': done,
-            'log_prob': log_prob,
-            'value': value
-        }
-        
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(transition)
-        else:
-            self.buffer[self.position] = transition
-        
-        self.position = (self.position + 1) % self.capacity
-    
-    def sample(self, batch_size: int) -> Dict:
-        """
-        Sample a batch of transitions.
-        
-        Args:
-            batch_size: Number of transitions to sample
-            
-        Returns:
-            Batch dictionary with stacked arrays
-        """
-        indices = np.random.choice(len(self.buffer), batch_size, replace=False)
-        
-        batch = {
-            'observations': {
-                'blocks': [],
-                'inventory': [],
-                'agent_state': []
-            },
-            'actions': {'movement': [], 'camera': [], 'interaction': [], 'inventory': []},
-            'rewards': [],
-            'next_observations': {
-                'blocks': [],
-                'inventory': [],
-                'agent_state': []
-            },
-            'dones': [],
-            'log_probs': [],
-            'values': []
-        }
-        
-        for idx in indices:
-            t = self.buffer[idx]
-            
-            for key in batch['observations']:
-                batch['observations'][key].append(t['observation'][key])
-                batch['next_observations'][key].append(t['next_observation'][key])
-            
-            if isinstance(t['action'], dict):
-                for key in batch['actions']:
-                    if key in t['action']:
-                        batch['actions'][key].append(t['action'][key])
-            
-            batch['rewards'].append(t['reward'])
-            batch['dones'].append(t['done'])
-            batch['log_probs'].append(t['log_prob'])
-            batch['values'].append(t['value'])
-        
-        # Stack arrays
-        for key in batch['observations']:
-            batch['observations'][key] = np.stack(batch['observations'][key])
-            batch['next_observations'][key] = np.stack(batch['next_observations'][key])
-        
-        for key in batch['actions']:
-            if batch['actions'][key]:
-                batch['actions'][key] = np.array(batch['actions'][key])
-        
-        batch['rewards'] = np.array(batch['rewards'])
-        batch['dones'] = np.array(batch['dones'])
-        batch['log_probs'] = np.array(batch['log_probs'])
-        batch['values'] = np.array(batch['values'])
-        
-        return batch
-    
-    def clear(self) -> None:
-        """Clear the buffer."""
-        self.buffer.clear()
-        self.position = 0
-    
-    def __len__(self) -> int:
-        return len(self.buffer)
+        # Note: weights_only=False is required because we save additional
+        # config dict. This is safe for checkpoints created by this training
+        # script but do not load untrusted checkpoints.
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        if 'epsilon' in checkpoint:
+            self.epsilon = checkpoint['epsilon']
 
 
 class RolloutBuffer:
     """
-    Rollout buffer for on-policy algorithms (like PPO).
+    Rollout buffer for on-policy algorithms (like PPO/A2C).
     
     Stores complete episodes for batch training.
     Computes advantages and returns.
@@ -362,7 +264,7 @@ class RolloutBuffer:
     def __init__(self):
         """Initialize rollout buffer."""
         self.observations: List[Dict] = []
-        self.actions: List[Dict | np.ndarray] = []
+        self.actions: List[Dict] = []
         self.rewards: List[float] = []
         self.log_probs: List[float] = []
         self.values: List[float] = []
@@ -371,7 +273,7 @@ class RolloutBuffer:
     def add(
         self,
         observation: Dict[str, np.ndarray],
-        action: Dict | np.ndarray,
+        action: Dict,
         reward: float,
         log_prob: float,
         value: float,
@@ -379,7 +281,10 @@ class RolloutBuffer:
     ) -> None:
         """Add a transition to the rollout."""
         self.observations.append({k: v.copy() for k, v in observation.items()})
-        self.actions.append(action.copy() if isinstance(action, dict) else action)
+        self.actions.append(
+            {k: v.copy() if isinstance(v, np.ndarray) else v 
+             for k, v in action.items()} if isinstance(action, dict) else action
+        )
         self.rewards.append(reward)
         self.log_probs.append(log_prob)
         self.values.append(value)
@@ -404,10 +309,10 @@ class RolloutBuffer:
             advantages: GAE advantages
         """
         n = len(self.rewards)
-        returns = np.zeros(n)
-        advantages = np.zeros(n)
+        returns = np.zeros(n, dtype=np.float32)
+        advantages = np.zeros(n, dtype=np.float32)
         
-        last_gae = 0
+        last_gae = 0.0
         
         for t in reversed(range(n)):
             if t == n - 1:
@@ -447,10 +352,10 @@ class RolloutBuffer:
                 'inventory': np.stack([o['inventory'] for o in self.observations]),
                 'agent_state': np.stack([o['agent_state'] for o in self.observations])
             },
-            'rewards': np.array(self.rewards),
-            'log_probs': np.array(self.log_probs),
-            'values': np.array(self.values),
-            'dones': np.array(self.dones)
+            'rewards': np.array(self.rewards, dtype=np.float32),
+            'log_probs': np.array(self.log_probs, dtype=np.float32),
+            'values': np.array(self.values, dtype=np.float32),
+            'dones': np.array(self.dones, dtype=np.float32)
         }
         
         # Handle actions based on type
