@@ -109,6 +109,8 @@ celerybeat-schedule
 # Project specific
 checkpoints/*.pt
 checkpoints/*.pth
+checkpoints/*.npz
+checkpoints/logs/
 logs/
 *.log
 training_logs/

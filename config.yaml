@@ -10,9 +10,9 @@ max_steps_per_episode: 10000  # Maximum steps per episode
 batch_size: 64                # Number of steps per optimization batch
 gamma: 0.99                   # Discount factor for returns
 gae_lambda: 0.95              # Lambda for Generalized Advantage Estimation
-learning_rate: 0.0003         # Optimizer learning rate
+learning_rate: 0.0003         # Optimizer learning rate (Adam)
 value_loss_coef: 0.5          # Weight for value loss
-entropy_coef: 0.01            # Weight for entropy bonus
+entropy_coef: 0.01            # Weight for entropy bonus (encourages exploration)
 max_grad_norm: 0.5            # Maximum gradient norm for clipping
 
 # Logging and Checkpointing
@@ -34,8 +34,8 @@ continuous_actions: false     # Use continuous (true) or discrete (false) action
 # -----------
 seed: 42                      # Random seed for reproducibility
 
-# Model Architecture
-# ------------------
+# Model Architecture (Advanced)
+# -----------------------------
 # These are advanced settings - modify with caution
 # block_channels: 32          # Channels in block encoder output
 # hidden_dim: 128             # Hidden layer dimension
@@ -47,10 +47,9 @@ seed: 42                      # Random seed for reproducibility
 # epsilon_end: 0.01           # Final exploration rate
 # epsilon_decay: 0.995        # Decay rate per episode
 
-# Curriculum Settings
-# -------------------
-# Curriculum stages (in order):
-# 1. BASIC_SURVIVAL - Learn to survive, move around
+# Curriculum Stages (in order of progression)
+# -------------------------------------------
+# 1. BASIC_SURVIVAL - Learn to survive, move around safely
 # 2. RESOURCE_GATHERING - Mine blocks, collect items
 # 3. TOOL_CRAFTING - Craft tools, use crafting systems
 # 4. NETHER_ACCESS - Build and enter Nether portal
@@ -63,8 +62,8 @@ seed: 42                      # Random seed for reproducibility
 # Reward Shaping
 # --------------
 # Positive rewards:
-# - Mining valuable items
-# - Crafting tools
+# - Mining valuable items (coal, iron, diamond)
+# - Crafting tools and items
 # - Surviving days
 # - Entering Nether/End
 # - Defeating Ender Dragon
@@ -74,3 +73,11 @@ seed: 42                      # Random seed for reproducibility
 #
 # Note: Only damage causes negative rewards to avoid
 # discouraging exploration.
+
+# Low-Resource Hardware Tips
+# --------------------------
+# If running on limited hardware:
+# - Set batch_size to 32 or lower
+# - Reduce max_steps_per_episode to 5000
+# - Increase log_interval to reduce I/O
+# - Set continuous_actions: false for discrete (faster)

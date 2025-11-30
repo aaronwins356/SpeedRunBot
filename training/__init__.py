@@ -2,7 +2,7 @@
 Training module for Minecraft RL Bot.
 
 This module provides the training loop and related components:
-- Trainer: Main training orchestration
+- Trainer: Main training orchestration with PyTorch
 - RewardShaper: Reward signal construction
 - CurriculumManager: Progressive difficulty scaling
 """
