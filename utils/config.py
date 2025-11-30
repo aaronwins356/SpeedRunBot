@@ -82,8 +82,12 @@ def _parse_simple_yaml(content: str) -> Dict:
     This is a minimal YAML parser for basic config files.
     For complex YAML, install PyYAML: pip install pyyaml
     
+    SECURITY NOTE: This simple parser only supports basic key:value pairs
+    and does not evaluate Python code. However, for production systems
+    with untrusted input, always use PyYAML's safe_load().
+    
     Args:
-        content: YAML file content
+        content: YAML file content (from trusted config files only)
         
     Returns:
         Parsed dictionary

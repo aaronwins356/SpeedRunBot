@@ -474,6 +474,9 @@ class Trainer:
     
     def load_checkpoint(self, path: str) -> None:
         """Load a training checkpoint."""
+        # Note: weights_only=False is required because we save additional
+        # training state (curriculum, config dicts). This is safe for checkpoints
+        # created by this training script but do not load untrusted checkpoints.
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         
         # Load model

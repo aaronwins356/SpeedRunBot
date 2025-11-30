@@ -244,6 +244,9 @@ class Policy:
     
     def load(self, path: str) -> None:
         """Load policy from file."""
+        # Note: weights_only=False is required because we save additional
+        # config dict. This is safe for checkpoints created by this training
+        # script but do not load untrusted checkpoints.
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         if 'epsilon' in checkpoint:
