@@ -1,7 +1,17 @@
 # Minecraft RL Bot Configuration
 # ===============================
-# This file contains all hyperparameters and settings for training.
-# Edit these values to tune the training process.
+# This file contains all hyperparameters and settings for both:
+# 1. Training the RL agent
+# 2. Running the live Elytra Finder Bot
+
+# Mode Selection
+# --------------
+# "TRAIN" for training mode, "LIVE_BOT" for Elytra finder
+mode: "TRAIN"
+
+# =============================================================================
+# TRAINING CONFIGURATION
+# =============================================================================
 
 # Training Parameters
 # -------------------
@@ -33,6 +43,57 @@ continuous_actions: false     # Use continuous (true) or discrete (false) action
 # Random Seed
 # -----------
 seed: 42                      # Random seed for reproducibility
+
+# =============================================================================
+# LIVE BOT CONFIGURATION (Elytra Finder)
+# =============================================================================
+
+# LemonCloud Server Settings
+# --------------------------
+lemoncloud:
+  host: "play.lemoncloud.net"       # Server hostname
+  port: 25565                        # Server port
+  # Commands to execute after connecting to reach survival mode
+  # Adjust these based on the actual server's command system
+  login_commands:
+    - "/survival"                    # Example: join survival server
+  # Commands to get to The End dimension
+  go_to_end_commands:
+    - "/warp end"                    # Example: warp to End spawn
+
+# Account Settings
+# ----------------
+account:
+  username: ""                       # Your Minecraft username
+  email: ""                          # Account email (if needed)
+  password_env_var: "MC_PASSWORD"    # Environment variable for password
+                                     # Never store passwords in this file!
+
+# Bot Behavior Settings
+# ---------------------
+bot_behavior:
+  max_runtime_minutes: 120           # Maximum bot runtime before stopping
+  log_interval_seconds: 5            # Seconds between status logs
+  search_radius_blocks: 256          # Radius to search for End Cities
+  max_void_risk: 0.2                 # Maximum acceptable void risk (0-1)
+  control_mode: "scripted"           # "scripted" or "rl"
+                                     # scripted: Pure scripted behavior
+                                     # rl: Use trained RL policy for navigation
+
+# Safety Settings
+# ---------------
+safety:
+  dry_run: false                     # If true, simulate without sending commands
+  max_sessions_per_day: 10           # Maximum bot sessions per day
+
+# Output Settings
+# ---------------
+output:
+  elytra_log_file: "elytra_finds.jsonl"  # Where to log found Elytra locations
+
+# =============================================================================
+# REFERENCE DOCUMENTATION
+# =============================================================================
 
 # Model Architecture (Advanced)
 # -----------------------------

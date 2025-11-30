@@ -17,7 +17,9 @@ from .model import (
 from .policy import (
     PolicyConfig,
     Policy,
-    RolloutBuffer
+    RolloutBuffer,
+    select_action_from_observation,
+    get_action_dict_from_observation
 )
 
 __all__ = [
@@ -28,5 +30,7 @@ __all__ = [
     'create_model',
     'PolicyConfig',
     'Policy',
-    'RolloutBuffer'
+    'RolloutBuffer',
+    'select_action_from_observation',
+    'get_action_dict_from_observation'
 ]

@@ -114,3 +114,9 @@ checkpoints/logs/
 logs/
 *.log
 training_logs/
+
+# Elytra bot outputs
+elytra_finds.jsonl
+
+# Environment files with secrets
+.env
