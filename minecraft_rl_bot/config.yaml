@@ -1,0 +1,76 @@
+# Minecraft RL Bot Configuration
+# ===============================
+# This file contains all hyperparameters and settings for training.
+# Edit these values to tune the training process.
+
+# Training Parameters
+# -------------------
+num_episodes: 10000           # Total episodes to train
+max_steps_per_episode: 10000  # Maximum steps per episode
+batch_size: 64                # Number of steps per optimization batch
+gamma: 0.99                   # Discount factor for returns
+gae_lambda: 0.95              # Lambda for Generalized Advantage Estimation
+learning_rate: 0.0003         # Optimizer learning rate
+value_loss_coef: 0.5          # Weight for value loss
+entropy_coef: 0.01            # Weight for entropy bonus
+max_grad_norm: 0.5            # Maximum gradient norm for clipping
+
+# Logging and Checkpointing
+# -------------------------
+log_interval: 10              # Episodes between logging
+save_interval: 100            # Episodes between checkpoints
+eval_interval: 50             # Episodes between evaluation runs
+
+# Paths
+# -----
+checkpoint_dir: checkpoints   # Directory for saving checkpoints
+
+# Features
+# --------
+use_curriculum: true          # Whether to use curriculum learning
+continuous_actions: false     # Use continuous (true) or discrete (false) actions
+
+# Random Seed
+# -----------
+seed: 42                      # Random seed for reproducibility
+
+# Model Architecture
+# ------------------
+# These are advanced settings - modify with caution
+# block_channels: 32          # Channels in block encoder output
+# hidden_dim: 128             # Hidden layer dimension
+# obs_size: 21                # Observation region size (21x21x21)
+
+# Exploration
+# -----------
+# epsilon_start: 1.0          # Initial exploration rate
+# epsilon_end: 0.01           # Final exploration rate
+# epsilon_decay: 0.995        # Decay rate per episode
+
+# Curriculum Settings
+# -------------------
+# Curriculum stages (in order):
+# 1. BASIC_SURVIVAL - Learn to survive, move around
+# 2. RESOURCE_GATHERING - Mine blocks, collect items
+# 3. TOOL_CRAFTING - Craft tools, use crafting systems
+# 4. NETHER_ACCESS - Build and enter Nether portal
+# 5. BLAZE_HUNTING - Find fortress, kill Blazes
+# 6. ENDER_PEARL_HUNT - Collect Ender Pearls
+# 7. END_PREPARATION - Craft Eyes, find stronghold
+# 8. DRAGON_FIGHT - Enter End, defeat dragon
+# 9. FULL_GAME - Complete speedrun
+
+# Reward Shaping
+# --------------
+# Positive rewards:
+# - Mining valuable items
+# - Crafting tools
+# - Surviving days
+# - Entering Nether/End
+# - Defeating Ender Dragon
+#
+# Negative rewards:
+# - Taking damage (fall, mobs, lava)
+#
+# Note: Only damage causes negative rewards to avoid
+# discouraging exploration.
