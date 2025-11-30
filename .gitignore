@@ -80,11 +80,12 @@ celerybeat-schedule
 # Environments (virtual environments only at root level)
 /.env
 /.venv
-/env/
 /venv/
 /ENV/
 /env.bak/
 /venv.bak/
+# Note: /env/ NOT ignored because we have an env/ Python module
+# Virtual environment should use /venv/ instead
 
 # Spyder project settings
 .spyderproject
@@ -114,3 +115,9 @@ checkpoints/logs/
 logs/
 *.log
 training_logs/
+
+# Elytra bot outputs
+elytra_finds.jsonl
+
+# Environment files with secrets
+.env

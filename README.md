@@ -1,44 +1,73 @@
-# 🎮 Minecraft RL Bot
+# 🎮 Minecraft RL Bot & Elytra Finder
 
-A reinforcement learning agent designed to beat Minecraft (reaching the end credits) using pure RL — no imitation learning, no human data.
+A reinforcement learning agent designed to beat Minecraft, plus a live bot for finding Elytra in End Cities on servers like LemonCloud.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🎯 Project Goals
+## 🎯 Project Overview
 
-This project implements a complete RL training framework for Minecraft with the following objectives:
+This project provides two main features:
 
-- **Beat Minecraft**: Train an agent to defeat the Ender Dragon and reach the end credits
-- **Generalize**: Work on randomly generated seeds and diverse biomes
-- **Pure RL**: No human data or imitation learning — learn entirely from experience
-- **Curriculum Learning**: Master basic skills before attempting full game runs
-- **Low Resource**: Run on standard hardware without GPU requirements
+### 1. RL Training Mode
+Train an AI agent to beat Minecraft using pure reinforcement learning:
+- Curriculum learning through 9 progressive stages
+- Actor-critic architecture with PyTorch
+- Designed for low-resource hardware (CPU-friendly)
+
+### 2. Live Elytra Finder Bot
+A live bot that connects to Minecraft servers to find Elytra:
+- Connects to LemonCloud or other servers
+- Navigates to The End dimension
+- Searches for End Cities and End Ships
+- Detects and logs Elytra locations
+- Supports scripted or RL-based navigation
 
 ## 📁 Project Structure
 
 ```
 SpeedRunBot/
-├── agent/                    # Neural network and policy
-│   ├── model.py              # PyTorch 3D CNN-based policy network
-│   └── policy.py             # Policy wrapper with exploration
-├── env/                      # Environment logic
-│   ├── core_env.py           # Mock Minecraft world simulation
-│   ├── blocks.py             # Block types and properties
-│   └── actions.py            # Action definitions (discrete & continuous)
-├── training/                 # Training components
-│   ├── train.py              # Main training loop with PyTorch
-│   ├── reward.py             # Reward shaping logic
-│   └── curriculum.py         # Curriculum learning stages
-├── utils/                    # Utilities
-│   ├── logger.py             # Training logger and visualization
-│   └── config.py             # Configuration management
-├── checkpoints/              # Saved models
-├── main.py                   # Main entry point (CLI)
-├── config.yaml               # Hyperparameters and settings
-├── run.sh                    # Shell script for training
-└── README.md                 # This file
+├── main.py                 # CLI: choose TRAIN or LIVE_BOT mode
+├── config.yaml             # Configuration for both modes
+├── requirements.txt        # Python dependencies
+├── .env.example            # Environment variable template
+│
+├── agent/                  # Neural network and policy
+│   ├── model.py            # PyTorch 3D CNN-based policy network
+│   └── policy.py           # Policy wrapper with inference helpers
+│
+├── env/                    # Environment implementations
+│   ├── offline_env.py      # Mock environment for training
+│   └── lemoncloud_env.py   # Live environment wrapper
+│
+├── live_bot/               # Elytra Finder Bot components
+│   ├── controller.py       # State machine and bot logic
+│   ├── navigation.py       # Pathfinding and movement
+│   ├── perception.py       # World observation
+│   ├── end_city_scanner.py # End City/Ship detection
+│   ├── inventory_manager.py# Chest and item handling
+│   ├── tasks.py            # Reusable task primitives
+│   └── login_flow.py       # Server connection flow
+│
+├── integration/            # Minecraft client integration
+│   └── mc_client.py        # Client abstraction layer
+│
+├── training/               # Training components
+│   ├── train.py            # Training loop
+│   ├── reward.py           # Reward shaping
+│   └── curriculum.py       # Curriculum learning
+│
+├── utils/                  # Utilities
+│   ├── logger.py           # Training logger
+│   └── config.py           # Configuration helpers
+│
+├── scripts/                # Runner scripts
+│   ├── run_live_bot.sh     # Linux/Mac bot runner
+│   └── run_live_bot.bat    # Windows bot runner
+│
+├── checkpoints/            # Saved models
+└── README.md               # This file
 ```
 
 ## 🚀 Quick Start
@@ -47,7 +76,7 @@ SpeedRunBot/
 
 - Python 3.8 or higher
 - PyTorch (CPU version is sufficient)
-- NumPy
+- NumPy, PyYAML
 
 ### Installation
 
@@ -65,52 +94,92 @@ SpeedRunBot/
 
 3. **Install dependencies**
    ```bash
-   # Install PyTorch CPU version (recommended for low-resource hardware)
-   pip install torch --index-url https://download.pytorch.org/whl/cpu
-   
-   # Install other dependencies
-   pip install numpy pyyaml
+   pip install -r requirements.txt
    ```
 
-### Training
+4. **Set up environment variables** (for live bot)
+   ```bash
+   cp .env.example .env
+   # Edit .env with your Minecraft credentials
+   ```
 
-**Start training with default settings:**
+### Running
+
+#### Training Mode
+
 ```bash
+# Start training with default settings
+python main.py train
+
+# Start at a specific curriculum stage
+python main.py train --stage survival
+
+# Resume from checkpoint
+python main.py train --resume checkpoints/best_model.pt
+
+# Legacy flag-based syntax (still supported)
 python main.py --train
 ```
 
-Or using the shell script:
+#### Live Bot Mode
+
 ```bash
-./run.sh train
+# Run Elytra Finder Bot
+python main.py live-bot
+
+# Dry run (simulate without sending commands)
+python main.py live-bot --dry-run
+
+# With custom settings
+python main.py live-bot --host play.lemoncloud.net --max-runtime 60
+
+# Using the runner script
+./scripts/run_live_bot.sh --dry-run
 ```
 
-**Start at a specific curriculum stage:**
-```bash
-python main.py --stage survival
-python main.py --stage resource_gathering
-python main.py --stage tool_crafting
-```
+#### Quick Test
 
-**Resume from checkpoint:**
-```bash
-python main.py --resume checkpoints/best_model.pt
-```
-
-**Evaluate trained model:**
-```bash
-python main.py --evaluate --checkpoint checkpoints/best_model.pt
-```
-
-### Quick Test
-
-Verify everything works:
 ```bash
 python main.py --test
 ```
 
-## 🎓 Curriculum Learning
+## ⚙️ Configuration
 
-The agent progresses through 9 curriculum stages, mastering each before moving to the next:
+Edit `config.yaml` to customize behavior:
+
+```yaml
+# Mode Selection
+mode: "TRAIN"  # or "LIVE_BOT"
+
+# Training Parameters
+num_episodes: 10000
+learning_rate: 0.0003
+use_curriculum: true
+
+# LemonCloud Server Settings
+lemoncloud:
+  host: "play.lemoncloud.net"
+  port: 25565
+  login_commands:
+    - "/survival"
+  go_to_end_commands:
+    - "/warp end"
+
+# Account Settings
+account:
+  username: "your_username"
+  password_env_var: "MC_PASSWORD"  # Read from environment
+
+# Bot Behavior
+bot_behavior:
+  max_runtime_minutes: 120
+  control_mode: "scripted"  # or "rl"
+  search_radius_blocks: 256
+```
+
+## 🎓 Curriculum Learning (Training Mode)
+
+The agent progresses through 9 curriculum stages:
 
 | Stage | Name | Description |
 |-------|------|-------------|
@@ -124,196 +193,84 @@ The agent progresses through 9 curriculum stages, mastering each before moving t
 | 7 | Dragon Fight | Enter End, defeat the dragon |
 | 8 | Full Game | Complete speedrun from start |
 
-The agent automatically advances through stages as it demonstrates mastery (configurable success threshold).
+## 🦅 Elytra Finder Bot (Live Mode)
 
-## 🎁 Reward System
+The bot uses a state machine to:
 
-### Positive Rewards
-- Mining valuable items (coal: +2, iron: +5, diamond: +20)
-- Crafting tools and items
-- Surviving days (+5 per day)
-- Entering the Nether (+50)
-- Entering the End (+100)
-- Defeating the Ender Dragon (+500)
-- Game completion (+1000)
+1. **CONNECT** - Connect to the server
+2. **LOGIN_FLOW** - Execute server commands to reach survival
+3. **ENTER_END** - Navigate to The End dimension
+4. **SEARCH_FOR_CITY** - Scan for End City structures
+5. **PATH_TO_CITY** - Navigate to found city
+6. **SEARCH_FOR_SHIP** - Look for End Ship
+7. **PATH_TO_SHIP** - Navigate to ship
+8. **OPEN_SHIP_CHEST** - Open the ship's chest
+9. **CHECK_FOR_ELYTRA** - Check for Elytra item
+10. **LOG_RESULT** - Log coordinates and findings
+11. **MOVE_TO_NEXT_TARGET** - Continue searching
 
-### Negative Rewards
-- **Only when taking damage** (fall, mobs, lava)
-- No penalty for idle time or inefficiency
+### Output
 
-This design encourages exploration while discouraging dangerous behavior.
+Elytra finds are logged to `elytra_finds.jsonl`:
 
-### Modifying Rewards
-
-Edit `training/reward.py` to customize reward values:
-
-```python
-REWARD_VALUES = {
-    'mine_diamond': 20.0,       # Increase for more diamond focus
-    'enter_nether': 50.0,       # Milestone rewards
-    'kill_dragon': 500.0,       # Ultimate goal
-    'damage_fall': -2.0,        # Only damage is penalized
+```json
+{
+  "timestamp": "2024-01-15T12:30:45",
+  "dimension": "the_end",
+  "x": 1234,
+  "y": 65,
+  "z": -5678,
+  "elytra_found": true
 }
-```
-
-## ⚙️ Configuration
-
-Edit `config.yaml` to customize training:
-
-```yaml
-# Training Parameters
-num_episodes: 10000           # Total episodes
-max_steps_per_episode: 10000  # Max steps per episode
-batch_size: 64                # Optimization batch size
-gamma: 0.99                   # Discount factor
-learning_rate: 0.0003         # Learning rate
-
-# Features
-use_curriculum: true          # Enable curriculum learning
-continuous_actions: false     # Use discrete actions (faster)
-
-# Random Seed
-seed: 42                      # For reproducibility
 ```
 
 ## 🧠 Model Architecture
 
 The policy network is a PyTorch Actor-Critic model:
 
-1. **Block Encoder**: 3D CNN that processes the 21×21×21 block observation
-   - Learnable block type embeddings
-   - 3 convolutional layers with batch normalization
-   - Global average pooling to feature vector
-
-2. **State Encoder**: MLP for auxiliary inputs
-   - Processes inventory counts
-   - Processes agent state (health, hunger, position)
-
+1. **Block Encoder**: 3D CNN that processes 21×21×21 block observations
+2. **State Encoder**: MLP for inventory and agent state
 3. **Policy Head**: Outputs action probabilities
-   - Separate heads for movement, camera, interaction, inventory
-   - Discrete actions by default (configurable for continuous)
+4. **Value Head**: Estimates state value
 
-4. **Value Head**: Estimates state value for actor-critic training
+## ⚠️ Safety & Ethics
+
+**This bot is intended to be used only where automation is explicitly allowed by the server owner.**
+
+- ✅ Use on your own private servers
+- ✅ Use on servers that explicitly allow bots
+- ✅ Use with permission from server owners
+- ❌ Do NOT use to violate server rules
+- ❌ Do NOT use for unauthorized automation
+- ❌ Do NOT use to gain unfair advantages
+
+The bot is designed to:
+- Respect rate limits (no packet spam)
+- Not bypass authentication
+- Not evade anti-cheat systems
+- Support dry-run mode for testing
 
 ## 💻 Running on Low-End Hardware
 
-This project is designed for CPU-only training. Tips for limited hardware:
+This project is designed for CPU-only training:
 
-1. **Use discrete actions** (default): Faster than continuous
-   ```yaml
-   continuous_actions: false
-   ```
-
-2. **Reduce batch size**:
-   ```yaml
-   batch_size: 32  # or even 16
-   ```
-
-3. **Limit episode length**:
-   ```yaml
-   max_steps_per_episode: 5000
-   ```
-
-4. **Increase logging interval** to reduce I/O:
-   ```yaml
-   log_interval: 50
-   ```
-
-5. **Use curriculum learning** to avoid wasting compute on impossible tasks:
-   ```yaml
-   use_curriculum: true
-   ```
-
-## 📦 Resuming Training
-
-Save your progress and resume later:
-
-```bash
-# Training automatically saves checkpoints every 100 episodes
-# Resume from latest:
-python main.py --resume checkpoints/checkpoint_500.pt
-
-# Or resume from best model:
-python main.py --resume checkpoints/best_model.pt
+```yaml
+# In config.yaml:
+batch_size: 32
+max_steps_per_episode: 5000
+continuous_actions: false
+log_interval: 50
 ```
 
-Checkpoints save:
-- Model weights
-- Optimizer state
-- Training progress (episode, steps, best reward)
-- Curriculum stage
-- Exploration epsilon
+## 📦 Minecraft Client Integration
 
-## 🗺️ Roadmap: Real Minecraft Integration
+The bot uses an abstraction layer (`integration/mc_client.py`) that can be implemented using:
 
-The codebase is designed for easy integration with real Minecraft:
+- **pyCraft**: Pure Python Minecraft protocol
+- **Mineflayer Bridge**: WebSocket to Node.js Mineflayer
+- **RCON**: For server commands (limited)
 
-### Using Project Malmo
-
-```python
-from env import MinecraftEnv
-
-class MalmoEnv(MinecraftEnv):
-    """Real Minecraft environment via Project Malmo."""
-    
-    def __init__(self, malmo_client):
-        super().__init__()
-        self.malmo = malmo_client
-    
-    def reset(self, seed=None, options=None):
-        self.malmo.start_mission(seed)
-        return self._get_observation(), self._get_info()
-    
-    def step(self, action):
-        self.malmo.send_command(self._convert_action(action))
-        return self._get_observation(), reward, done, truncated, info
-```
-
-### Using MineRL
-
-```python
-import minerl
-
-class MineRLEnv(MinecraftEnv):
-    """Real Minecraft environment via MineRL."""
-    
-    def __init__(self, env_name='MineRLObtainDiamond-v0'):
-        super().__init__()
-        self.minerl_env = gym.make(env_name)
-    
-    # Override methods to wrap MineRL...
-```
-
-### Future Plans
-
-- [ ] Add PPO algorithm for more stable training
-- [ ] Add curiosity-driven exploration (ICM)
-- [ ] Real Minecraft integration via MineRL
-- [ ] Multi-agent support
-- [ ] Video recording of agent behavior
-- [ ] Web dashboard for training visualization
-
-## 📊 Viewing Logs
-
-Training logs are saved to `checkpoints/logs/`. View them with:
-
-```python
-import json
-
-with open('checkpoints/logs/run_*/episodes.json') as f:
-    episodes = json.load(f)
-    
-for ep in episodes[-10:]:
-    print(f"Episode {ep['episode']}: Reward={ep['reward']:.2f}")
-```
-
-## ⚠️ Limitations
-
-1. **Mock Environment**: The included environment is simplified. For real Minecraft performance, integrate with Malmo or MineRL.
-
-2. **No GPU Acceleration**: Designed for CPU training. Training is slower but works on any machine.
-
-3. **Simplified Physics**: The mock world doesn't perfectly replicate Minecraft physics.
+The current implementation is a placeholder that logs actions. For actual server connectivity, implement the `MinecraftClient` class methods using your preferred library.
 
 ## 🤝 Contributing
 

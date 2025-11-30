@@ -379,3 +379,99 @@ class RolloutBuffer:
     
     def __len__(self) -> int:
         return len(self.rewards)
+
+
+def select_action_from_observation(
+    model: 'MinecraftPolicy',
+    observation: Dict[str, np.ndarray],
+    deterministic: bool = True
+) -> int:
+    """
+    Run the trained policy in eval mode and return a discrete action index.
+    
+    This is used for live inference where we want the policy to
+    select actions without exploration noise.
+    
+    Args:
+        model: The trained MinecraftPolicy model
+        observation: Observation dictionary with 'blocks', 'inventory', 'agent_state'
+        deterministic: If True, always select the most likely action
+        
+    Returns:
+        Action index for the primary action (movement)
+    """
+    import torch
+    
+    # Ensure model is in eval mode
+    model.eval()
+    
+    # Convert observation to tensors
+    device = next(model.parameters()).device
+    
+    obs_tensors = {}
+    for key, value in observation.items():
+        if isinstance(value, np.ndarray):
+            # Add batch dimension if needed
+            if len(value.shape) == 3:  # blocks
+                value = value[np.newaxis, ...]
+            elif len(value.shape) == 1:  # inventory, agent_state
+                value = value[np.newaxis, ...]
+            obs_tensors[key] = torch.tensor(value, dtype=torch.float32, device=device)
+        else:
+            obs_tensors[key] = value
+    
+    with torch.no_grad():
+        action, _, _ = model.get_action(obs_tensors, deterministic=deterministic)
+    
+    # Return primary movement action
+    if isinstance(action, dict):
+        movement = action.get('movement', torch.tensor([0]))
+        return int(movement[0].item())
+    else:
+        return 0
+
+
+def get_action_dict_from_observation(
+    model: 'MinecraftPolicy',
+    observation: Dict[str, np.ndarray],
+    deterministic: bool = True
+) -> Dict[str, np.ndarray]:
+    """
+    Get full action dictionary from policy for an observation.
+    
+    Args:
+        model: The trained MinecraftPolicy model
+        observation: Observation dictionary
+        deterministic: If True, always select the most likely actions
+        
+    Returns:
+        Action dictionary with all action types
+    """
+    import torch
+    
+    model.eval()
+    
+    device = next(model.parameters()).device
+    
+    obs_tensors = {}
+    for key, value in observation.items():
+        if isinstance(value, np.ndarray):
+            if len(value.shape) == 3:
+                value = value[np.newaxis, ...]
+            elif len(value.shape) == 1:
+                value = value[np.newaxis, ...]
+            obs_tensors[key] = torch.tensor(value, dtype=torch.float32, device=device)
+        else:
+            obs_tensors[key] = value
+    
+    with torch.no_grad():
+        action, _, _ = model.get_action(obs_tensors, deterministic=deterministic)
+    
+    # Convert to numpy
+    if isinstance(action, dict):
+        return {
+            key: value.cpu().numpy()
+            for key, value in action.items()
+        }
+    else:
+        return {'action': action.cpu().numpy()}
